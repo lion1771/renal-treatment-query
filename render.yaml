@@ -12,3 +12,17 @@ services:
         value: /tmp/renal-treatment-compiled
       - key: COMPILED_DATA_URL_BASE
         sync: false
+      - key: COMPILED_DATA_OSS_PREFIX
+        value: public/renal-treatment-query/compiled_public
+      - key: ALIYUN_OSS_REGION
+        value: cn-hongkong
+      - key: ALIYUN_OSS_ENDPOINT
+        value: https://oss-cn-hongkong.aliyuncs.com
+      - key: ALIYUN_OSS_BUCKET
+        value: renal
+      - key: ALIYUN_OSS_ACCESS_KEY_ID
+        sync: false
+      - key: ALIYUN_OSS_ACCESS_KEY_SECRET
+        sync: false
+      - key: ALIYUN_OSS_SECURITY_TOKEN
+        sync: false

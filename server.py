@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 import mimetypes
 import os
 import re
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
+from email.utils import format_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse, urlsplit, urlunparse
 
 from query_treatment_index import (
     DEFAULT_COMPILED_DIR,
@@ -121,22 +125,190 @@ def remote_data_base_url() -> str:
     ).strip()
 
 
+def compiled_data_oss_prefix() -> str:
+    return (
+        os.environ.get("COMPILED_DATA_OSS_PREFIX")
+        or os.environ.get("RENAL_TREATMENT_OSS_PREFIX")
+        or ""
+    ).strip().strip("/")
+
+
+def aliyun_oss_missing_required_values() -> list[str]:
+    required = {
+        "ALIYUN_OSS_ACCESS_KEY_ID": os.environ.get("ALIYUN_OSS_ACCESS_KEY_ID", "").strip(),
+        "ALIYUN_OSS_ACCESS_KEY_SECRET": os.environ.get("ALIYUN_OSS_ACCESS_KEY_SECRET", "").strip(),
+        "ALIYUN_OSS_REGION": os.environ.get("ALIYUN_OSS_REGION", "").strip(),
+        "ALIYUN_OSS_BUCKET": os.environ.get("ALIYUN_OSS_BUCKET", "").strip(),
+        "COMPILED_DATA_OSS_PREFIX": compiled_data_oss_prefix(),
+    }
+    return [key for key, value in required.items() if not value]
+
+
+def aliyun_oss_config_is_complete() -> bool:
+    return not aliyun_oss_missing_required_values()
+
+
+def aliyun_oss_config_has_partial_values() -> bool:
+    values = [
+        os.environ.get("ALIYUN_OSS_ACCESS_KEY_ID", "").strip(),
+        os.environ.get("ALIYUN_OSS_ACCESS_KEY_SECRET", "").strip(),
+        os.environ.get("ALIYUN_OSS_SECURITY_TOKEN", "").strip(),
+        os.environ.get("ALIYUN_OSS_REGION", "").strip(),
+        os.environ.get("ALIYUN_OSS_BUCKET", "").strip(),
+        compiled_data_oss_prefix(),
+    ]
+    return any(values) and not aliyun_oss_config_is_complete()
+
+
+def remote_data_source() -> str:
+    if remote_data_base_url():
+        return "remote_oss_url"
+    if aliyun_oss_config_is_complete():
+        return "remote_oss_signed"
+    return "local_compiled"
+
+
 def sync_remote_compiled_data(compiled_dir: Path) -> None:
     base_url = remote_data_base_url()
-    if not base_url:
+    if base_url:
+        compiled_dir.mkdir(parents=True, exist_ok=True)
+        for filename in PUBLIC_COMPILED_FILENAMES:
+            url = f"{base_url.rstrip('/')}/{filename}"
+            data = fetch_remote_bytes(url=url)
+            write_synced_file(compiled_dir, filename, data)
         return
+
+    if aliyun_oss_config_has_partial_values():
+        missing = ", ".join(aliyun_oss_missing_required_values())
+        raise RuntimeError(f"Incomplete Aliyun OSS data source configuration; missing: {missing}")
+
+    if not aliyun_oss_config_is_complete():
+        return
+
     compiled_dir.mkdir(parents=True, exist_ok=True)
     for filename in PUBLIC_COMPILED_FILENAMES:
-        url = f"{base_url.rstrip('/')}/{filename}"
-        target = compiled_dir / filename
-        tmp_target = compiled_dir / f".{filename}.tmp"
-        try:
-            with urllib.request.urlopen(url, timeout=30) as response:
-                data = response.read()
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"Failed to fetch public data file {filename} from OSS") from exc
-        tmp_target.write_bytes(data)
-        tmp_target.replace(target)
+        url, headers = build_aliyun_oss_get_request(filename)
+        data = fetch_remote_bytes(url=url, headers=headers)
+        write_synced_file(compiled_dir, filename, data)
+
+
+def fetch_remote_bytes(url: str, headers: dict[str, str] | None = None) -> bytes:
+    req = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return response.read()
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Failed to fetch public data file from OSS: {url}") from exc
+
+
+def write_synced_file(compiled_dir: Path, filename: str, data: bytes) -> None:
+    target = compiled_dir / filename
+    tmp_target = compiled_dir / f".{filename}.tmp"
+    tmp_target.write_bytes(data)
+    tmp_target.replace(target)
+
+
+def build_aliyun_oss_get_request(filename: str) -> tuple[str, dict[str, str]]:
+    region = os.environ["ALIYUN_OSS_REGION"].strip()
+    bucket = os.environ["ALIYUN_OSS_BUCKET"].strip()
+    endpoint = os.environ.get("ALIYUN_OSS_ENDPOINT", "").strip() or f"https://oss-{region}.aliyuncs.com"
+    object_key = f"{compiled_data_oss_prefix()}/{filename}"
+    url = build_aliyun_oss_object_url(endpoint, bucket, object_key)
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y%m%dT%H%M%SZ")
+    headers = {
+        "Date": format_datetime(now, usegmt=True),
+        "x-oss-content-sha256": "UNSIGNED-PAYLOAD",
+        "x-oss-date": timestamp,
+    }
+    security_token = os.environ.get("ALIYUN_OSS_SECURITY_TOKEN", "").strip()
+    if security_token:
+        headers["x-oss-security-token"] = security_token
+    headers["Authorization"] = build_aliyun_oss_v4_authorization(
+        method="GET",
+        canonical_uri=aliyun_oss_uri_encode(f"/{bucket}/{object_key}", encode_slash=False),
+        canonical_query="",
+        headers=headers,
+        additional_header_names=[],
+        payload_hash="UNSIGNED-PAYLOAD",
+        access_key_id=os.environ["ALIYUN_OSS_ACCESS_KEY_ID"].strip(),
+        access_key_secret=os.environ["ALIYUN_OSS_ACCESS_KEY_SECRET"].strip(),
+        region=region,
+        timestamp=timestamp,
+    )
+    return url, headers
+
+
+def build_aliyun_oss_object_url(endpoint: str, bucket: str, object_key: str) -> str:
+    parsed = urlsplit(endpoint.strip().rstrip("/"))
+    if not parsed.scheme:
+        parsed = urlsplit(f"https://{endpoint.strip().rstrip('/')}")
+    if not parsed.netloc:
+        raise ValueError("ALIYUN_OSS_ENDPOINT must include a valid host")
+    host = parsed.netloc
+    netloc = host if host == bucket or host.startswith(f"{bucket}.") else f"{bucket}.{host}"
+    path = "/" + aliyun_oss_uri_encode(object_key, encode_slash=False)
+    return urlunparse((parsed.scheme or "https", netloc, path, "", "", ""))
+
+
+def build_aliyun_oss_v4_authorization(
+    *,
+    method: str,
+    canonical_uri: str,
+    canonical_query: str,
+    headers: dict[str, str],
+    additional_header_names: list[str],
+    payload_hash: str,
+    access_key_id: str,
+    access_key_secret: str,
+    region: str,
+    timestamp: str,
+) -> str:
+    date = timestamp[:8]
+    additional_header_names = sorted({name.lower() for name in additional_header_names})
+    lower_headers = {name.lower(): normalize_aliyun_oss_header_value(value) for name, value in headers.items()}
+    signed_header_names = sorted(
+        name
+        for name in lower_headers
+        if name.startswith("x-oss-")
+        or name in {"content-type", "content-md5"}
+        or name in additional_header_names
+    )
+    canonical_headers = "".join(f"{name}:{lower_headers[name]}\n" for name in signed_header_names)
+    canonical_additional_headers = ";".join(additional_header_names)
+    canonical_request = (
+        f"{method.upper()}\n"
+        f"{canonical_uri}\n"
+        f"{canonical_query}\n"
+        f"{canonical_headers}\n"
+        f"{canonical_additional_headers}\n"
+        f"{payload_hash}"
+    )
+    hashed_request = hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
+    scope = f"{date}/{region}/oss/aliyun_v4_request"
+    string_to_sign = f"OSS4-HMAC-SHA256\n{timestamp}\n{scope}\n{hashed_request}"
+    signing_key = aliyun_oss_v4_signing_key(access_key_secret, date, region)
+    signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+    authorization = f"OSS4-HMAC-SHA256 Credential={access_key_id}/{scope}"
+    if canonical_additional_headers:
+        authorization += f",AdditionalHeaders={canonical_additional_headers}"
+    return f"{authorization},Signature={signature}"
+
+
+def aliyun_oss_v4_signing_key(access_key_secret: str, date: str, region: str) -> bytes:
+    key = hmac.new(f"aliyun_v4{access_key_secret}".encode("utf-8"), date.encode("utf-8"), hashlib.sha256).digest()
+    key = hmac.new(key, region.encode("utf-8"), hashlib.sha256).digest()
+    key = hmac.new(key, b"oss", hashlib.sha256).digest()
+    return hmac.new(key, b"aliyun_v4_request", hashlib.sha256).digest()
+
+
+def aliyun_oss_uri_encode(value: str, encode_slash: bool) -> str:
+    safe = "-_.~" if encode_slash else "/-_.~"
+    return quote(value, safe=safe)
+
+
+def normalize_aliyun_oss_header_value(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip())
 
 
 class TreatmentCatalog:
@@ -172,7 +344,7 @@ class TreatmentCatalog:
             "ok": True,
             "mode": "public" if self.public_mode else "internal",
             "compiled_dir": "compiled_public" if self.public_mode else str(self.compiled_dir),
-            "data_source": "remote_oss" if remote_data_base_url() else "local_compiled",
+            "data_source": remote_data_source(),
             "schema_id": self.manifest.get("schema_id"),
             "generated_at": self.manifest.get("generated_at"),
             "api_contract": {

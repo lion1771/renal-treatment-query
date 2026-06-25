@@ -25,6 +25,8 @@ python server.py --host 0.0.0.0 --port $PORT --compiled-dir /tmp/renal-treatment
 
 `render.yaml` 已配置为使用 `/tmp/renal-treatment-compiled` 和 `--public-mode` 启动；需要在 Render 环境变量里设置 `COMPILED_DATA_URL_BASE`。
 
+如果 OSS 对象保持私有，可以不填 `COMPILED_DATA_URL_BASE`，改填 `ALIYUN_OSS_ACCESS_KEY_ID`、`ALIYUN_OSS_ACCESS_KEY_SECRET`，并保留 `COMPILED_DATA_OSS_PREFIX=public/renal-treatment-query/compiled_public`。
+
 ## API
 
 - `GET /api/health`
