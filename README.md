@@ -41,6 +41,8 @@ cd /Users/liwei/Desktop/renal-treatment-query-product
 
 `compiled_public/` 只作为本地待上传数据目录，已被 `.gitignore` 排除，不提交到 GitHub。
 
+如果旧项目的 OSS key 上传失败，请给 RAM 用户增加 `docs/oss_ram_policy_minimal.json` 中的新前缀权限，然后把 key 写入 `.env.upload`。
+
 ### 更新代码
 
 ```bash
