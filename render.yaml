@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: renal-treatment-query
+    runtime: python
+    plan: free
+    buildCommand: ""
+    startCommand: python server.py --host 0.0.0.0 --port $PORT --compiled-dir /tmp/renal-treatment-compiled --public-mode
+    envVars:
+      - key: PUBLIC_MODE
+        value: "1"
+      - key: COMPILED_DIR
+        value: /tmp/renal-treatment-compiled
+      - key: COMPILED_DATA_URL_BASE
+        sync: false

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>肾病经典及前沿治疗</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="search-pane" aria-label="肾病经典及前沿治疗">
+        <div class="product-strip">
+          <span class="product-name">肾病经典及前沿治疗</span>
+        </div>
+        <label class="search-box">
+          <input id="queryInput" type="search" placeholder="IgA 肾病 有哪些治疗方案" autocomplete="off" />
+          <button id="reloadButton" class="icon-button" type="button" title="重载索引" aria-label="重载索引">↻</button>
+        </label>
+
+        <div class="query-tools">
+          <div class="intent-row" role="group" aria-label="常用问题">
+            <button class="intent-button active" data-intent="overview" type="button">总览</button>
+            <button class="intent-button" data-intent="classic" type="button">经典</button>
+            <button class="intent-button" data-intent="new" type="button">新药</button>
+            <button class="intent-button" data-intent="evidence" type="button">证据</button>
+            <button class="intent-button" data-intent="safety" type="button">不推荐</button>
+          </div>
+          <div class="result-meta">
+            <span id="resultCount">输入后显示匹配病种</span>
+            <span id="statusText"></span>
+          </div>
+        </div>
+
+        <ol id="diseaseList" class="disease-list"></ol>
+      </section>
+
+      <section class="detail-pane">
+        <section id="emptyState" class="empty-state">
+          <h2>输入疾病，查看经典及前沿治疗</h2>
+          <p>例如：IgA 肾病新药、膜性肾病经典治疗、TTP 补体抑制剂、肾静脉血栓溶栓。</p>
+        </section>
+
+        <article id="queryResult" class="query-result" hidden>
+          <header class="detail-header">
+            <div>
+              <div id="matchBadge" class="badge">未匹配</div>
+              <h2 id="diseaseTitle"></h2>
+              <p id="intentLine"></p>
+            </div>
+            <div id="countPanel" class="count-panel"></div>
+          </header>
+
+          <nav id="sectionNav" class="section-nav" aria-label="治疗分层"></nav>
+          <section id="quickGlance" class="quick-glance" aria-label="临床速览" hidden></section>
+          <div id="sectionsRoot" class="sections-root"></div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
