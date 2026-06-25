@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .DS_Store
 .env
+.env.render
+.env.upload
 .venv/
 venv/
 compiled_public/

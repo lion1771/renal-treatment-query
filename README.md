@@ -27,6 +27,30 @@ python server.py --host 0.0.0.0 --port $PORT --compiled-dir /tmp/renal-treatment
 
 如果 OSS 对象保持私有，可以不填 `COMPILED_DATA_URL_BASE`，改填 `ALIYUN_OSS_ACCESS_KEY_ID`、`ALIYUN_OSS_ACCESS_KEY_SECRET`，并保留 `COMPILED_DATA_OSS_PREFIX=public/renal-treatment-query/compiled_public`。
 
+## 后续更新流程
+
+### 更新查询数据
+
+```bash
+cd /Users/liwei/Desktop/renal-treatment-query-product
+./scripts/update_public_data_from_kb.sh
+./scripts/upload_public_json_to_oss.py --dry-run
+./scripts/upload_public_json_to_oss.py
+./scripts/trigger_render_deploy.py
+```
+
+`compiled_public/` 只作为本地待上传数据目录，已被 `.gitignore` 排除，不提交到 GitHub。
+
+### 更新代码
+
+```bash
+cd /Users/liwei/Desktop/renal-treatment-query-product
+git status
+git add server.py query_treatment_index.py static render.yaml README.md scripts
+git commit -m "Update renal treatment query app"
+git push origin main
+```
+
 ## API
 
 - `GET /api/health`
