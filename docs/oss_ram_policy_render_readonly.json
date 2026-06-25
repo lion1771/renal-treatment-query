@@ -1,0 +1,15 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "oss:GetObject",
+        "oss:HeadObject"
+      ],
+      "Resource": [
+        "acs:oss:*:*:renal/public/renal-treatment-query/compiled_public/*"
+      ]
+    }
+  ]
+}
